@@ -2,6 +2,7 @@ import streamlit as st
 import joblib
 import librosa
 import numpy as np
+from scipy.signal import butter, lfilter
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -22,9 +23,21 @@ except Exception as e:
     st.error(f"Error loading models/scalers: {e}")
     artifacts_loaded = False
 
-# 2. Extract identical 66 features
+# Butterworth High-Pass Filter to eliminate low-frequency environment noise (< 80 Hz)
+def highpass_filter(data, cutoff=80.0, sr=22050, order=5):
+    nyq = 0.5 * sr
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='high', analog=False)
+    y = lfilter(b, a, data)
+    return y
+
+# 2. Extract identical 66 features with added high-pass noise filtering
 def extract_rich_features(file_path):
+    # Load audio signal
     y, sr = librosa.load(file_path, sr=None, res_type='kaiser_fast')
+
+    # Apply highpass filter to eliminate live environment noise / mic hums
+    y = highpass_filter(y, cutoff=80.0, sr=sr)
 
     # MFCCs & Deltas
     mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
@@ -88,7 +101,7 @@ if artifacts_loaded:
         st.audio(audio_file, format='audio/wav')
 
         if st.button("Run Classifier", type="primary"):
-            with st.spinner("Processing signal and extracting 66 acoustic features..."):
+            with st.spinner("Processing signal, filtering noise, and extracting 66 acoustic features..."):
                 temp_filename = "temp_app_audio.wav"
                 with open(temp_filename, "wb") as f:
                     f.write(audio_file.getbuffer())
